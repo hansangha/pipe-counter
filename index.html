@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>파이프 카운터</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1F3864">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{--navy:#1F3864;--green:#1A7A3A;--red:#C00000;--bg:#f3f5f8;--line:#d5dbe3;--ink:#1a1f29;--sub:#5b6575}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:"Malgun Gothic","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif}
+body{padding:env(safe-area-inset-top) env(safe-area-inset-right) calc(env(safe-area-inset-bottom) + 96px) env(safe-area-inset-left)}
+header{background:var(--navy);color:#fff;padding:14px 16px;display:flex;align-items:center;gap:10px}
+header h1{font-size:18px;margin:0;font-weight:800;letter-spacing:-.3px}
+header .tag{font-size:11px;opacity:.75;margin-left:auto}
+.wrap{max-width:900px;margin:0 auto;padding:12px}
+.count{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px 16px;display:flex;align-items:center;gap:14px}
+.count .num{font-size:44px;font-weight:900;color:var(--red);line-height:1;font-variant-numeric:tabular-nums}
+.count .unit{font-size:18px;font-weight:700;color:var(--red)}
+.count .rows{font-size:12.5px;color:var(--sub);line-height:1.5;word-break:keep-all}
+.count .rows b{color:var(--ink)}
+.btns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}
+.btn{appearance:none;border:1px solid var(--line);background:#fff;color:var(--ink);font:inherit;font-weight:700;font-size:15px;border-radius:12px;padding:13px 10px;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer}
+.btn.primary{background:var(--navy);color:#fff;border-color:var(--navy)}
+.btn:disabled{opacity:.45}
+.btn input{display:none}
+.viewer{position:relative;background:#222;border-radius:12px;overflow:auto;max-height:68vh;min-height:220px;display:flex}
+.viewer canvas{display:block;margin:auto;max-width:none;touch-action:auto}
+.viewer.region canvas{touch-action:none}
+.empty{color:#cfd5de;margin:auto;text-align:center;padding:40px 20px;font-size:14px;line-height:1.7}
+.empty b{color:#fff;font-size:16px}
+.busy{position:absolute;inset:0;background:rgba(15,20,30,.6);color:#fff;display:none;align-items:center;justify-content:center;font-weight:700;gap:10px}
+.busy.on{display:flex}
+.spin{width:22px;height:22px;border:3px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:s 0.8s linear infinite}
+@keyframes s{to{transform:rotate(360deg)}}
+.hint{font-size:12.5px;color:var(--sub);margin:8px 2px;min-height:18px}
+.panel{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-top:10px}
+.panel h3{margin:0 0 8px;font-size:14px}
+.row{display:flex;align-items:center;gap:10px;margin:8px 0;font-size:14px}
+.row label{min-width:78px;font-weight:700}
+.row input[type=range]{flex:1}
+.row .val{min-width:44px;text-align:right;font-variant-numeric:tabular-nums;color:var(--sub);font-size:13px}
+.chk{display:flex;gap:16px;flex-wrap:wrap;font-size:14px}
+.chk label{display:flex;gap:6px;align-items:center}
+.small{font-size:12px;color:var(--sub);line-height:1.6;margin:6px 0 0}
+.bar{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--line);padding:8px 8px calc(8px + env(safe-area-inset-bottom));display:flex;gap:6px;justify-content:center;z-index:5}
+.seg{display:flex;background:#eef1f5;border-radius:10px;padding:3px;gap:2px;flex:1;max-width:420px}
+.seg button{flex:1;border:0;background:transparent;font:inherit;font-size:13px;font-weight:700;padding:9px 2px;border-radius:8px;color:var(--sub);display:flex;flex-direction:column;align-items:center;gap:1px}
+.seg button .i{font-size:17px;line-height:1}
+.seg button.on{background:#fff;color:var(--navy);box-shadow:0 1px 3px rgba(0,0,0,.15)}
+.seg button.on.add{color:var(--green)}.seg button.on.del{color:var(--red)}
+.tool{border:1px solid var(--line);background:#fff;border-radius:10px;font:inherit;font-weight:700;font-size:13px;padding:0 10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;color:var(--ink)}
+.tool .i{font-size:17px;line-height:1}
+.tool:disabled{opacity:.35}
+.toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:rgba(20,25,35,.92);color:#fff;padding:10px 16px;border-radius:20px;font-size:13.5px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:9;max-width:90vw;text-align:center}
+.toast.on{opacity:1}
+#saveImgBox{display:none;margin-top:10px}
+#saveImgBox img{width:100%;border-radius:10px;border:1px solid var(--line)}
+</style>
+</head>
+<body>
+<header><h1>📏 파이프 카운터</h1><span class="tag">단면 사진으로 개수 세기</span></header>
+<div class="wrap">
+  <div class="count">
+    <div><span class="num" id="total">0</span><span class="unit"> 개</span></div>
+    <div class="rows" id="rowsTxt">사진을 찍거나 불러오면 파이프 단면을 자동으로 세어 드려요.</div>
+  </div>
+
+  <div class="btns">
+    <label class="btn primary">📷 사진 촬영<input id="camIn" type="file" accept="image/*" capture="environment"></label>
+    <label class="btn">🖼️ 앨범에서<input id="galIn" type="file" accept="image/*"></label>
+  </div>
+
+  <div class="viewer" id="viewer">
+    <div class="empty" id="empty"><b>파이프 단면을 정면에서 찍어 주세요</b><br>번들 전체가 화면에 들어오게, 너무 비스듬하지 않게<br>찍으면 정확도가 올라가요.</div>
+    <canvas id="cv" style="display:none"></canvas>
+    <div class="busy" id="busy"><div class="spin"></div><span id="busyTxt">분석 중…</span></div>
+  </div>
+  <div class="hint" id="hint"></div>
+
+  <div class="btns">
+    <button class="btn" id="saveBtn" disabled>💾 결과 이미지 저장</button>
+    <button class="btn" id="clearRegion" disabled>▭ 영역 해제</button>
+  </div>
+  <div id="saveImgBox"><p class="small">아래 이미지를 길게 눌러 저장할 수도 있어요.</p><img id="saveImg" alt="결과 이미지"></div>
+
+  <div class="panel">
+    <h3>⚙️ 인식 설정</h3>
+    <div class="row"><label>민감도</label><input type="range" id="sens" min="0" max="10" step="1" value="5"><span class="val" id="sensV">보통</span></div>
+    <div class="row"><label>파이프 크기</label><input type="range" id="size" min="5" max="120" step="1" value="24" disabled><span class="val" id="sizeV">자동</span></div>
+    <div class="chk">
+      <label><input type="checkbox" id="autoSize" checked> 크기 자동</label>
+      <label><input type="checkbox" id="showNum" checked> 번호 표시</label>
+      <label><input type="checkbox" id="showRows" checked> 줄별 개수</label>
+    </div>
+    <p class="small">• 덜 잡히면 <b>민감도↑</b>, 엉뚱한 곳이 잡히면 <b>민감도↓</b><br>• 크기가 안 맞으면 '크기 자동'을 끄고 슬라이더로 맞추세요 (점선 원이 미리보기)<br>• 설정을 바꾸면 다시 인식해서 손으로 고친 내용은 초기화돼요</p>
+  </div>
+
+  <div class="panel">
+    <h3>✋ 손으로 고치기</h3>
+    <p class="small" style="margin:0">아래 도구 막대에서 고르세요.<br><b>➕ 추가</b>: 빠진 파이프를 터치 · <b>➖ 삭제</b>: 잘못 잡힌 원을 터치 · <b>▭ 영역</b>: 셀 번들만 손가락으로 드래그해서 네모로 감싸기 (다른 번들 제외) · <b>🔍</b>: 확대/축소</p>
+  </div>
+</div>
+
+<div class="bar">
+  <div class="seg" id="seg">
+    <button data-m="view" class="on"><span class="i">👆</span>보기</button>
+    <button data-m="add" class="add"><span class="i">➕</span>추가</button>
+    <button data-m="del" class="del"><span class="i">➖</span>삭제</button>
+    <button data-m="region"><span class="i">▭</span>영역</button>
+  </div>
+  <button class="tool" id="undo" disabled><span class="i">↩️</span>취소</button>
+  <button class="tool" id="zoomOut"><span class="i">🔍</span>−</button>
+  <button class="tool" id="zoomIn"><span class="i">🔍</span>+</button>
+</div>
+<div class="toast" id="toast"></div>
+
+<script id="engineSrc" type="text/plain">
+// Pipe-end circle detector (pure JS). Input: RGBA or RGB bytes.
+function toGray(data,w,h,ch){const g=new Float32Array(w*h);for(let i=0;i<w*h;i++){g[i]=0.299*data[i*ch]+0.587*data[i*ch+1]+0.114*data[i*ch+2];}return g;}
+function resample(g,w,h,W,H){const o=new Float32Array(W*H);const sx=w/W,sy=h/H;
+ for(let y=0;y<H;y++){const fy=(y+0.5)*sy-0.5;const y0=Math.max(0,Math.floor(fy)),y1=Math.min(h-1,y0+1),ty=Math.min(1,Math.max(0,fy-y0));
+  for(let x=0;x<W;x++){
+   if(sx>1.5){ // box average when downscaling
+     let s=0,n=0;const xa=Math.floor(x*sx),xb=Math.min(w,Math.floor((x+1)*sx)),ya=Math.floor(y*sy),yb=Math.min(h,Math.floor((y+1)*sy));
+     for(let yy=ya;yy<yb;yy++)for(let xx=xa;xx<xb;xx++){s+=g[yy*w+xx];n++;} o[y*W+x]=s/Math.max(1,n); continue;}
+   const fx=(x+0.5)*sx-0.5;const x0=Math.max(0,Math.floor(fx)),x1=Math.min(w-1,x0+1),tx=Math.min(1,Math.max(0,fx-x0));
+   o[y*W+x]=(g[y0*w+x0]*(1-tx)+g[y0*w+x1]*tx)*(1-ty)+(g[y1*w+x0]*(1-tx)+g[y1*w+x1]*tx)*ty;}}
+ return o;}
+function blur(g,w,h,r){const t=new Float32Array(w*h),o=new Float32Array(w*h);
+ for(let y=0;y<h;y++){let s=0;for(let x=-r;x<=r;x++)s+=g[y*w+Math.min(w-1,Math.max(0,x))];
+  for(let x=0;x<w;x++){t[y*w+x]=s/(2*r+1);s+=g[y*w+Math.min(w-1,x+r+1)]-g[y*w+Math.max(0,x-r)];}}
+ for(let x=0;x<w;x++){let s=0;for(let y=-r;y<=r;y++)s+=t[Math.min(h-1,Math.max(0,y))*w+x];
+  for(let y=0;y<h;y++){o[y*w+x]=s/(2*r+1);s+=t[Math.min(h-1,y+r+1)*w+x]-t[Math.max(0,y-r)*w+x];}}
+ return o;}
+function prepare(data,w,h,ch,maxDim){maxDim=maxDim||800;const sc=maxDim/Math.max(w,h);const W=Math.round(w*sc),H=Math.round(h*sc);
+ let g=resample(toGray(data,w,h,ch),w,h,W,H);g=blur(blur(g,W,H,1),W,H,1);
+ const gx=new Float32Array(W*H),gy=new Float32Array(W*H),mag=new Float32Array(W*H);
+ for(let y=1;y<H-1;y++)for(let x=1;x<W-1;x++){const i=y*W+x;
+  const a=g[i-W-1],b=g[i-W],c=g[i-W+1],d=g[i-1],f=g[i+1],p=g[i+W-1],q=g[i+W],r=g[i+W+1];
+  const sx=(c+2*f+r)-(a+2*d+p),sy=(p+2*q+r)-(a+2*b+c);gx[i]=sx;gy[i]=sy;mag[i]=Math.hypot(sx,sy);}
+ // thin edges: non-max suppression along gradient
+ const hist=new Float32Array(mag).filter(v=>v>0).sort();const T=Math.max(20,hist[Math.floor(hist.length*0.80)]);
+ const ex=[],ey=[],edx=[],edy=[];
+ for(let y=2;y<H-2;y++)for(let x=2;x<W-2;x++){const i=y*W+x,m=mag[i];if(m<T)continue;
+  const dx=gx[i]/m,dy=gy[i]/m;const m1=mag[Math.round(y+dy)*W+Math.round(x+dx)],m2=mag[Math.round(y-dy)*W+Math.round(x-dx)];
+  if(m<m1||m<m2)continue;ex.push(x);ey.push(y);edx.push(dx);edy.push(dy);}
+ return {W,H,sc,ex,ey,edx,edy,n:ex.length};}
+function detect(P,r1,r2,thr){const {W,H,ex,ey,edx,edy,n}=P;const A=new Float32Array(W*H);
+ for(let k=0;k<n;k++){const x=ex[k],y=ey[k],dx=edx[k],dy=edy[k];
+  for(let s=-1;s<=1;s+=2)for(let r=r1;r<=r2;r++){const cx=Math.round(x+s*dx*r),cy=Math.round(y+s*dy*r);
+   if(cx>=0&&cy>=0&&cx<W&&cy<H)A[cy*W+cx]+=1;}}
+ const B=blur(A,W,H,1);
+ const rm=(r1+r2)/2;const cand=[];const win=Math.max(2,Math.round(rm*0.5));
+ for(let y=1;y<H-1;y++)for(let x=1;x<W-1;x++){const v=B[y*W+x];if(v<rm*0.25)continue;
+  let ok=true;for(let yy=y-1;yy<=y+1&&ok;yy++)for(let xx=x-1;xx<=x+1;xx++)if(B[yy*W+xx]>v){ok=false;break;}
+  if(ok)cand.push([x,y,v]);}
+ cand.sort((a,b)=>b[2]-a[2]);
+ const out=[];const md=rm*1.45,md2=md*md;
+ // spatial grid for overlap checks
+ const cs=Math.ceil(md),gw=Math.ceil(W/cs)+1,grid=new Map();
+ for(const [x,y,v] of cand){const sc=v*9/(2*Math.PI*rm);if(sc<thr)break;
+  const gx0=Math.floor(x/cs),gy0=Math.floor(y/cs);let bad=false;
+  for(let a=-1;a<=1&&!bad;a++)for(let b=-1;b<=1&&!bad;b++){const L=grid.get((gy0+a)*gw+gx0+b);if(L)for(const c of L){if((c.x-x)**2+(c.y-y)**2<md2){bad=true;break;}}}
+  if(bad)continue;const c={x,y,r:rm,score:sc};out.push(c);const key=gy0*gw+gx0;if(!grid.has(key))grid.set(key,[]);grid.get(key).push(c);}
+ // refine radius per circle using edge distance histogram
+ refineRadii(P,out,r1,r2);
+ return out;}
+function refineRadii(P,circ,r1,r2){const {ex,ey,edx,edy,n}=P;const lo=Math.floor(r1*0.8),hi=Math.ceil(r2*1.2);
+ const cs=hi+1,gw=Math.ceil(P.W/cs)+1,grid=new Map();
+ circ.forEach((c,i)=>{c.h=new Float32Array(hi+2);const k=Math.floor(c.y/cs)*gw+Math.floor(c.x/cs);if(!grid.has(k))grid.set(k,[]);grid.get(k).push(c);});
+ for(let k=0;k<n;k++){const x=ex[k],y=ey[k],g0=Math.floor(x/cs),g1=Math.floor(y/cs);
+  for(let a=-1;a<=1;a++)for(let b=-1;b<=1;b++){const L=grid.get((g1+a)*gw+g0+b);if(!L)continue;
+   for(const c of L){const dx=x-c.x,dy=y-c.y,d=Math.hypot(dx,dy);if(d<lo||d>hi)continue;
+    const cos=Math.abs((dx*edx[k]+dy*edy[k])/d);if(cos>0.8)c.h[Math.round(d)]+=1;}}}
+ for(const c of circ){let best=0,br=c.r;for(let r=lo;r<=hi;r++){const v=(c.h[r-1]||0)+c.h[r]+(c.h[r+1]||0);if(v>best){best=v;br=r;}}c.r=br;delete c.h;}}
+// automatic: try radius bands, pick the most consistent one
+function autoDetect(P,thr){const m=Math.min(P.W,P.H);let best=null;
+ const bands=[];for(let r=Math.max(5,m*0.008);r<m*0.12;r*=1.3)bands.push([Math.round(r),Math.round(r*1.35)]);
+ for(const [r1,r2] of bands){const c=detect(P,r1,r2,thr);if(c.length<3)continue;
+  const rs=c.map(o=>o.r).sort((a,b)=>a-b);const med=rs[rs.length>>1];
+  const inBand=c.filter(o=>o.r>=r1*0.95&&o.r<=r2*1.05&&Math.abs(o.r-med)<med*0.15);
+  const quality=inBand.reduce((s,o)=>s+o.score,0)*Math.sqrt(med); // favour larger consistent circles
+  if(!best||quality>best.q)best={q:quality,band:[r1,r2],circles:c,med};}
+ return best;}
+
+
+self.onmessage=function(e){const m=e.data;
+ try{
+  if(m.type==='prep'){self.P=prepare(new Uint8ClampedArray(m.buf),m.W,m.H,4,Math.max(m.W,m.H));}
+  const P=self.P;let res;
+  if(m.band){res={circles:detect(P,m.band[0],m.band[1],m.thr),band:m.band};}
+  else{const b=autoDetect(P,m.thr);res=b?{circles:b.circles,band:b.band}:{circles:[],band:null};}
+  self.postMessage({ok:true,id:m.id,circles:res.circles.map(c=>({x:c.x,y:c.y,r:c.r})),band:res.band});
+ }catch(err){self.postMessage({ok:false,id:m.id,err:String(err)});}
+};
+</script>
+<script>
+(function(){
+const $=id=>document.getElementById(id);
+const cv=$('cv'),ctx=cv.getContext('2d'),viewer=$('viewer');
+const WORK=1000, OUTMAX=1600;
+let img=null, W=0,H=0, circles=[], region=null, undoStack=[], mode='view', zoom=1, preview=false, reqId=0, lastBand=null;
+let worker=null;
+// engine: worker if possible, otherwise main thread
+const src=$('engineSrc').textContent;
+try{worker=new Worker(URL.createObjectURL(new Blob([src],{type:'text/javascript'})));}catch(e){worker=null;}
+let mainEngine=null;
+function runEngine(msg){return new Promise((resolve,reject)=>{
+  if(worker){const id=msg.id;const h=e=>{if(e.data.id!==id)return;worker.removeEventListener('message',h);e.data.ok?resolve(e.data):reject(e.data.err);};
+    worker.addEventListener('message',h);
+    worker.onerror=()=>{worker=null;runEngine(msg).then(resolve,reject);};
+    worker.postMessage(msg,msg.buf?[msg.buf]:[]);}
+  else{ if(!mainEngine){mainEngine={};new Function('self',src.replace(/self\.onmessage[\s\S]*$/,'')+';self.prepare=prepare;self.detect=detect;self.autoDetect=autoDetect;')(mainEngine);}
+    setTimeout(()=>{try{
+      if(msg.type==='prep')mainEngine.P=mainEngine.prepare(new Uint8ClampedArray(msg.buf),msg.W,msg.H,4,Math.max(msg.W,msg.H));
+      const P=mainEngine.P;let r;
+      if(msg.band)r={circles:mainEngine.detect(P,msg.band[0],msg.band[1],msg.thr),band:msg.band};
+      else{const b=mainEngine.autoDetect(P,msg.thr);r=b?{circles:b.circles,band:b.band}:{circles:[],band:null};}
+      resolve({circles:r.circles.map(c=>({x:c.x,y:c.y,r:c.r})),band:r.band});}catch(e){reject(String(e));}},30);}
+});}
+
+function toast(t){const el=$('toast');el.textContent=t;el.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove('on'),2200);}
+function busy(on,t){$('busy').classList.toggle('on',on);if(t)$('busyTxt').textContent=t;}
+const sensLabels=['아주 낮음','','낮음','','조금 낮음','보통','조금 높음','','높음','','아주 높음'];
+function thrFromSens(){const s=+$('sens').value;return +(1.35-s*0.11).toFixed(2);} // 5 -> 0.8
+function updSensLabel(){const s=+$('sens').value;$('sensV').textContent=sensLabels[s]||s;}
+
+async function loadFile(f){
+  if(!f)return;
+  busy(true,'사진 불러오는 중…');
+  try{
+    const url=URL.createObjectURL(f);
+    const im=new Image();await new Promise((res,rej)=>{im.onload=res;im.onerror=rej;im.src=url;});
+    img=im;
+    const s=WORK/Math.max(im.naturalWidth,im.naturalHeight);
+    W=Math.round(im.naturalWidth*s);H=Math.round(im.naturalHeight*s);
+    const oc=document.createElement('canvas');oc.width=W;oc.height=H;const o=oc.getContext('2d');
+    o.imageSmoothingQuality='high';o.drawImage(im,0,0,W,H);
+    const data=o.getImageData(0,0,W,H).data;
+    region=null;undoStack=[];zoom=1;
+    $('empty').style.display='none';cv.style.display='block';
+    await detectNow({type:'prep',buf:data.buffer.slice(0),W,H});
+  }catch(e){busy(false);toast('사진을 열 수 없어요');}
+}
+async function detectNow(base){
+  busy(true,'파이프 세는 중…');
+  const msg=Object.assign({id:++reqId,thr:thrFromSens()},base||{type:'detect'});
+  if(!$('autoSize').checked){const r=+$('size').value;msg.band=[Math.max(4,Math.round(r*0.85)),Math.round(r*1.15)];}
+  try{
+    const res=await runEngine(msg);if(res.id&&res.id!==reqId)return;
+    circles=res.circles;lastBand=res.band;undoStack=[];
+    if($('autoSize').checked&&circles.length){const rs=circles.map(c=>c.r).sort((a,b)=>a-b);$('size').value=rs[rs.length>>1];}
+    updSizeLabel();
+    render();
+    toast(circles.length?`${circles.length}개 인식했어요`:'파이프를 찾지 못했어요. 크기/민감도를 조정해 보세요');
+  }catch(e){toast('인식 중 오류가 났어요');}
+  busy(false);
+}
+function updSizeLabel(){$('sizeV').textContent=$('autoSize').checked?('자동'+(circles.length?'':'')):$('size').value+'px';}
+
+function inRegion(c){return !region||(c.x>=region.x0&&c.x<=region.x1&&c.y>=region.y0&&c.y<=region.y1);}
+function active(){return circles.filter(inRegion);}
+function medR(list){const rs=(list.length?list:circles).map(c=>c.r).sort((a,b)=>a-b);return rs.length?rs[rs.length>>1]:(+$('size').value||20);}
+function groupRows(list){
+  const L=list.slice().sort((a,b)=>a.y-b.y);const tol=medR(list)*0.6;const rows=[];
+  for(const c of L){const r=rows[rows.length-1];if(r&&Math.abs(c.y-r.my)<tol){r.items.push(c);r.my=r.items.reduce((s,o)=>s+o.y,0)/r.items.length;}else rows.push({items:[c],my:c.y});}
+  rows.forEach(r=>r.items.sort((a,b)=>a.x-b.x));return rows;
+}
+
+function draw(target,scale,opts){
+  const g=target.getContext('2d');target.width=Math.round(W*scale);target.height=Math.round(H*scale);
+  g.imageSmoothingQuality='high';g.drawImage(img,0,0,target.width,target.height);
+  const list=active();const rows=groupRows(list);const f=scale;
+  // dim outside region
+  if(region){g.save();g.fillStyle='rgba(0,0,0,0.45)';g.beginPath();g.rect(0,0,target.width,target.height);
+    g.rect(region.x0*f,region.y0*f,(region.x1-region.x0)*f,(region.y1-region.y0)*f);g.fill('evenodd');
+    g.setLineDash([10*f/scale*1.2,6]);g.strokeStyle='#FFD400';g.lineWidth=Math.max(2,3*f);g.strokeRect(region.x0*f,region.y0*f,(region.x1-region.x0)*f,(region.y1-region.y0)*f);g.restore();}
+  // fills
+  for(const c of list){g.beginPath();g.arc(c.x*f,c.y*f,Math.max(1,(c.r-1)*f),0,Math.PI*2);g.fillStyle='rgba(40,200,80,0.40)';g.fill();
+    g.lineWidth=Math.max(1.5,c.r*f*0.08);g.strokeStyle='#2BE05A';g.stroke();}
+  // numbers
+  let k=0;
+  for(const row of rows)for(const c of row.items){k++;
+    if(!$('showNum').checked)continue;
+    const fs=Math.max(8,c.r*f*(k<100?0.72:k<1000?0.58:0.46));
+    g.font=`800 ${fs}px "Malgun Gothic",sans-serif`;g.textAlign='center';g.textBaseline='middle';
+    g.lineWidth=Math.max(2,fs*0.18);g.strokeStyle='rgba(0,0,0,0.75)';g.strokeText(k,c.x*f,c.y*f+fs*0.04);g.fillStyle='#fff';g.fillText(k,c.x*f,c.y*f+fs*0.04);}
+  // row counts
+  if($('showRows').checked&&rows.length>1){
+    for(const row of rows){const c=row.items[0];const fs=Math.max(10,medR(list)*f*0.85);
+      g.font=`900 ${fs}px "Malgun Gothic",sans-serif`;g.textAlign='right';g.textBaseline='middle';
+      const x=Math.max(fs*1.3,(c.x-c.r*1.4)*f),y=row.my*f;
+      g.lineWidth=fs*0.22;g.strokeStyle='#fff';g.strokeText(row.items.length,x,y);g.fillStyle='#D00000';g.fillText(row.items.length,x,y);}
+  }
+  // total banner
+  const bs=Math.max(18,Math.min(target.width,target.height)*0.06);
+  g.font=`900 ${bs}px "Malgun Gothic",sans-serif`;const txt=`총 ${list.length}개`;const tw=g.measureText(txt).width;
+  const bx=target.width/2-tw/2-bs*0.5,by=bs*0.35;g.fillStyle='rgba(255,255,255,0.93)';
+  roundRect(g,bx,by,tw+bs,bs*1.4,bs*0.25);g.fill();g.fillStyle='#C00000';g.textAlign='center';g.textBaseline='middle';g.fillText(txt,target.width/2,by+bs*0.72);
+  // size preview ring
+  if(opts&&opts.preview){const r=+$('size').value*f;g.save();g.setLineDash([8,6]);g.lineWidth=3;g.strokeStyle='#FFD400';
+    g.beginPath();g.arc(target.width/2,target.height/2,r,0,Math.PI*2);g.stroke();g.restore();}
+  return {list,rows};
+}
+function roundRect(g,x,y,w,h,r){g.beginPath();g.moveTo(x+r,y);g.arcTo(x+w,y,x+w,y+h,r);g.arcTo(x+w,y+h,x,y+h,r);g.arcTo(x,y+h,x,y,r);g.arcTo(x,y,x+w,y,r);g.closePath();}
+
+function render(){
+  if(!img)return;
+  const vw=viewer.clientWidth;const base=Math.min(vw/W,(window.innerHeight*0.68)/H);
+  const dpr=Math.min(2,window.devicePixelRatio||1);
+  const cssW=W*base*zoom,cssH=H*base*zoom;
+  const {list,rows}=draw(cv,(cssW*dpr)/W,{preview});
+  cv.style.width=cssW+'px';cv.style.height=cssH+'px';
+  $('total').textContent=list.length;
+  $('rowsTxt').innerHTML=list.length?(`<b>${rows.length}줄</b> · 위에서부터 ${rows.map(r=>r.items.length).join(' · ')}`+(region?'<br>▭ 지정한 영역 안만 세는 중':'')):'인식된 파이프가 없어요. 설정을 조정하거나 ➕추가로 직접 찍어 주세요.';
+  $('saveBtn').disabled=!list.length;$('clearRegion').disabled=!region;$('undo').disabled=!undoStack.length;
+}
+
+function pushUndo(){undoStack.push({circles:circles.map(c=>({...c})),region:region&&{...region}});if(undoStack.length>50)undoStack.shift();}
+function toWork(e){const r=cv.getBoundingClientRect();return {x:(e.clientX-r.left)/r.width*W,y:(e.clientY-r.top)/r.height*H};}
+
+let drag=null;
+cv.addEventListener('pointerdown',e=>{
+  if(!img)return;const p=toWork(e);
+  if(mode==='region'){drag={x:p.x,y:p.y};cv.setPointerCapture(e.pointerId);e.preventDefault();}
+});
+cv.addEventListener('pointermove',e=>{
+  if(mode!=='region'||!drag)return;const p=toWork(e);
+  const rg={x0:Math.min(drag.x,p.x),y0:Math.min(drag.y,p.y),x1:Math.max(drag.x,p.x),y1:Math.max(drag.y,p.y)};
+  if(!drag.pushed){pushUndo();drag.pushed=true;}region=rg;render();
+});
+cv.addEventListener('pointerup',e=>{
+  if(mode==='region'&&drag){const ok=region&&(region.x1-region.x0)>10&&(region.y1-region.y0)>10;if(!ok&&drag.pushed){const u=undoStack.pop();region=u.region;}drag=null;render();if(ok)toast(`영역 안 ${active().length}개`);}
+});
+cv.addEventListener('click',e=>{
+  if(!img||mode==='view'||mode==='region')return;const p=toWork(e);
+  if(mode==='add'){const r=medR(active());
+    if(circles.some(c=>Math.hypot(c.x-p.x,c.y-p.y)<r*0.7)){toast('이미 표시된 자리예요');return;}
+    pushUndo();circles.push({x:p.x,y:p.y,r,manual:true});render();}
+  else if(mode==='del'){let best=-1,bd=1e9;circles.forEach((c,i)=>{const d=Math.hypot(c.x-p.x,c.y-p.y);if(d<c.r*1.05&&d<bd){bd=d;best=i;}});
+    if(best<0){toast('원 안쪽을 터치해 주세요');return;}pushUndo();circles.splice(best,1);render();}
+});
+
+$('seg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;mode=b.dataset.m;
+  [...$('seg').children].forEach(x=>x.classList.toggle('on',x===b));viewer.classList.toggle('region',mode==='region');
+  $('hint').textContent={view:'',add:'➕ 빠진 파이프 단면 가운데를 터치하세요',del:'➖ 지울 원을 터치하세요',region:'▭ 셀 번들을 손가락으로 대각선 드래그해서 감싸세요'}[mode];});
+$('undo').onclick=()=>{const u=undoStack.pop();if(!u)return;circles=u.circles;region=u.region;render();};
+$('zoomIn').onclick=()=>{zoom=Math.min(5,zoom*1.4);render();};
+$('zoomOut').onclick=()=>{zoom=Math.max(1,zoom/1.4);render();};
+$('clearRegion').onclick=()=>{pushUndo();region=null;render();};
+$('camIn').onchange=e=>{loadFile(e.target.files[0]);e.target.value='';};
+$('galIn').onchange=e=>{loadFile(e.target.files[0]);e.target.value='';};
+$('sens').oninput=updSensLabel;
+$('sens').onchange=()=>{if(img)detectNow();};
+$('autoSize').onchange=()=>{$('size').disabled=$('autoSize').checked;updSizeLabel();if(img)detectNow();};
+$('size').oninput=()=>{updSizeLabel();preview=true;render();};
+$('size').onchange=()=>{preview=false;if(img)detectNow();};
+$('showNum').onchange=render;$('showRows').onchange=render;
+window.addEventListener('resize',()=>{clearTimeout(render.t);render.t=setTimeout(render,150);});
+
+// save
+let downloads=null;
+if(window.claude&&window.claude.use){window.claude.use('downloads').then(d=>{downloads=d;}).catch(()=>{});}
+$('saveBtn').onclick=async()=>{
+  if(!img)return;const oc=document.createElement('canvas');
+  const s=Math.min(OUTMAX/W,OUTMAX/H,Math.max(img.naturalWidth/W,1.6));draw(oc,s,{});
+  const d=new Date();const name=`파이프_${active().length}개_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}_${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}.jpg`;
+  const blob=await new Promise(r=>oc.toBlob(r,'image/jpeg',0.92));
+  $('saveImg').src=URL.createObjectURL(blob);$('saveImgBox').style.display='block';
+  if(downloads){try{await downloads.save({filename:name,data:blob});toast('저장했어요');return;}catch(err){if(err&&err.code==='declined'){toast('저장을 취소했어요');return;}}}
+  try{const a=document.createElement('a');a.href=$('saveImg').src;a.download=name;document.body.appendChild(a);a.click();a.remove();}catch(e){}
+  toast('아래 이미지를 길게 눌러 저장하세요');
+  $('saveImgBox').scrollIntoView({behavior:'smooth'});
+};
+updSensLabel();
+if('serviceWorker' in navigator&&location.protocol.startsWith('http')){navigator.serviceWorker.register('sw.js').catch(()=>{});}
+})();
+</script>
+</body>
+</html>
