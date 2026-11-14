@@ -57,6 +57,22 @@ header .tag{font-size:11px;opacity:.75;margin-left:auto}
 .tool:disabled{opacity:.35}
 .toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:rgba(20,25,35,.92);color:#fff;padding:10px 16px;border-radius:20px;font-size:13.5px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:9;max-width:90vw;text-align:center}
 .toast.on{opacity:1}
+.fgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;margin-bottom:10px}
+.fgrid label{display:flex;flex-direction:column;gap:3px;font-size:12px;font-weight:700;color:var(--sub)}
+.fgrid input{width:100%;box-sizing:border-box;font:inherit;font-size:15px;padding:10px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);min-width:0}
+.fgrid .full{grid-column:1 / -1}
+.recs{margin:10px 0 4px;border-top:1px solid var(--line)}
+.rec{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)}
+.rec img{width:52px;height:52px;object-fit:cover;border-radius:8px;border:1px solid var(--line);flex:none}
+.rec .info{flex:1;min-width:0;font-size:13px;line-height:1.45}
+.rec .info b{font-size:14px}
+.rec .info .s{color:var(--sub);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rec .cnt{font-weight:900;color:var(--red);font-size:18px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.rec .del{border:1px solid var(--line);background:#fff;border-radius:8px;font:inherit;font-size:12px;padding:7px 8px;color:var(--sub);white-space:nowrap}
+.rec .del.arm{background:var(--red);color:#fff;border-color:var(--red)}
+.rtotal{display:flex;justify-content:space-between;align-items:center;font-weight:800;padding:8px 2px;font-size:14px}
+.rtotal .n{color:var(--red);font-size:20px}
+.btn.green{background:var(--green);color:#fff;border-color:var(--green)}
 #saveImgBox{display:none;margin-top:10px}
 #saveImgBox img{width:100%;border-radius:10px;border:1px solid var(--line)}
 </style>
@@ -86,6 +102,25 @@ header .tag{font-size:11px;opacity:.75;margin-left:auto}
     <button class="btn" id="clearRegion" disabled>▭ 영역 해제</button>
   </div>
   <div id="saveImgBox"><p class="small">아래 이미지를 길게 눌러 저장할 수도 있어요.</p><img id="saveImg" alt="결과 이미지"></div>
+
+  <div class="panel" id="recPanel">
+    <h3>📋 실사 기록 · 엑셀 내보내기</h3>
+    <div class="fgrid">
+      <label>품목<input id="fItem" placeholder="예: 강관" autocomplete="off"></label>
+      <label>규격<input id="fSpec" placeholder="예: 50A×2.3t" autocomplete="off"></label>
+      <label>위치/번들<input id="fLoc" placeholder="예: A동 3번 번들" autocomplete="off"></label>
+      <label>메모<input id="fMemo" placeholder="선택 사항" autocomplete="off"></label>
+    </div>
+    <button class="btn green" id="addRec" style="width:100%" disabled>➕ 현재 결과를 기록에 추가</button>
+    <div class="recs" id="recList"></div>
+    <div class="rtotal" id="recTotal" style="display:none"><span id="recTotalTxt"></span><span class="n" id="recTotalN"></span></div>
+    <div class="btns" style="margin-bottom:0">
+      <button class="btn primary" id="xlsxBtn" disabled>📊 엑셀로 내보내기</button>
+      <button class="btn" id="shareBtn" disabled>📤 엑셀 공유</button>
+    </div>
+    <button class="btn" id="clearRec" style="width:100%;margin-top:8px;font-size:13px;color:var(--sub)" disabled>🗑 기록 전체 비우기</button>
+    <p class="small">• 번들마다 사진을 찍고 '기록에 추가'를 누르면 목록에 쌓여요. 엑셀에는 기록표(합계 포함)와 결과 사진이 같이 들어가요.<br>• 기록은 이 휴대폰에만 저장돼요. 엑셀로 내보낸 뒤 비워 주세요.</p>
+  </div>
 
   <div class="panel">
     <h3>⚙️ 인식 설정</h3>
@@ -197,6 +232,131 @@ self.onmessage=function(e){const m=e.data;
   self.postMessage({ok:true,id:m.id,circles:res.circles.map(c=>({x:c.x,y:c.y,r:c.r})),band:res.band});
  }catch(err){self.postMessage({ok:false,id:m.id,err:String(err)});}
 };
+</script>
+<script>// Minimal XLSX writer (no dependencies): records sheet + photo sheet with embedded JPEGs.
+const XLSX_MINI=(function(){
+const enc=new TextEncoder();
+const CRC=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0;}return t;})();
+function crc32(b){let c=0xFFFFFFFF;for(let i=0;i<b.length;i++)c=CRC[(c^b[i])&255]^(c>>>8);return (c^0xFFFFFFFF)>>>0;}
+function zip(files){ // files: [{name, data:Uint8Array}] stored (no compression)
+  const parts=[],central=[];let off=0;
+  const dt=new Date();const dosT=(dt.getHours()<<11)|(dt.getMinutes()<<5)|(dt.getSeconds()>>1);const dosD=((dt.getFullYear()-1980)<<9)|((dt.getMonth()+1)<<5)|dt.getDate();
+  for(const f of files){const nm=enc.encode(f.name),d=f.data,crc=crc32(d);
+    const h=new DataView(new ArrayBuffer(30));h.setUint32(0,0x04034b50,true);h.setUint16(4,20,true);h.setUint16(6,0x0800,true);h.setUint16(8,0,true);
+    h.setUint16(10,dosT,true);h.setUint16(12,dosD,true);h.setUint32(14,crc,true);h.setUint32(18,d.length,true);h.setUint32(22,d.length,true);h.setUint16(26,nm.length,true);h.setUint16(28,0,true);
+    parts.push(new Uint8Array(h.buffer),nm,d);
+    const c=new DataView(new ArrayBuffer(46));c.setUint32(0,0x02014b50,true);c.setUint16(4,20,true);c.setUint16(6,20,true);c.setUint16(8,0x0800,true);c.setUint16(10,0,true);
+    c.setUint16(12,dosT,true);c.setUint16(14,dosD,true);c.setUint32(16,crc,true);c.setUint32(20,d.length,true);c.setUint32(24,d.length,true);c.setUint16(28,nm.length,true);
+    c.setUint32(42,off,true);central.push(new Uint8Array(c.buffer),nm);
+    off+=30+nm.length+d.length;}
+  const cs=central.reduce((s,a)=>s+a.length,0);
+  const e=new DataView(new ArrayBuffer(22));e.setUint32(0,0x06054b50,true);e.setUint16(8,files.length,true);e.setUint16(10,files.length,true);e.setUint32(12,cs,true);e.setUint32(16,off,true);
+  const all=[...parts,...central,new Uint8Array(e.buffer)];const out=new Uint8Array(all.reduce((s,a)=>s+a.length,0));let p=0;for(const a of all){out.set(a,p);p+=a.length;}return out;}
+const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,'');
+const col=i=>{let s='';i++;while(i>0){const m=(i-1)%26;s=String.fromCharCode(65+m)+s;i=Math.floor((i-1)/26);}return s;};
+function cell(r,c,v,s){const ref=col(c)+r;if(typeof v==='number')return `<c r="${ref}" s="${s}"><v>${v}</v></c>`;return `<c r="${ref}" s="${s}" t="inlineStr"><is><t xml:space="preserve">${esc(v)}</t></is></c>`;}
+function row(r,cells,ht){return `<row r="${r}"${ht?` ht="${ht}" customHeight="1"`:''}>${cells.join('')}</row>`;}
+const pad=n=>String(n).padStart(2,'0');
+const fmt=ts=>{const d=new Date(ts);return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;};
+function b64bytes(dataUrl){const b=atob(dataUrl.split(',')[1]);const u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u;}
+
+function build(records,opts){
+  opts=opts||{};const title=opts.title||'파이프 재고실사 기록';
+  const S={def:0,head:1,txt:2,num:3,title:4,totL:5,totN:6,sub:7,cap:8};
+  const styles=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<fonts count="5"><font><sz val="10"/><name val="맑은 고딕"/><family val="3"/><charset val="129"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="맑은 고딕"/><family val="3"/><charset val="129"/></font><font><b/><sz val="14"/><color rgb="FF1F3864"/><name val="맑은 고딕"/><family val="3"/><charset val="129"/></font><font><b/><sz val="10"/><name val="맑은 고딕"/><family val="3"/><charset val="129"/></font><font><sz val="9"/><color rgb="FF5A5A5A"/><name val="맑은 고딕"/><family val="3"/><charset val="129"/></font></fonts>
+<fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF1F3864"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFF2CC"/><bgColor indexed="64"/></patternFill></fill></fills>
+<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFBFBFBF"/></left><right style="thin"><color rgb="FFBFBFBF"/></right><top style="thin"><color rgb="FFBFBFBF"/></top><bottom style="thin"><color rgb="FFBFBFBF"/></bottom><diagonal/></border></borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="9">
+<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
+<xf numFmtId="3" fontId="3" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment vertical="center"/></xf>
+<xf numFmtId="0" fontId="3" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+<xf numFmtId="3" fontId="3" fillId="3" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+<xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1"/>
+<xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment vertical="center"/></xf>
+</cellXfs>
+<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>`;
+  // Sheet 1: records table
+  const heads=['No','일시','품목','규격','위치/번들','수량(개)','줄별 개수(위→아래)','메모'];
+  let r=1;const rows=[];
+  rows.push(row(r++,[cell(1,0,title,S.title)],26));
+  rows.push(row(r++,[cell(2,0,`출력일시: ${fmt(Date.now())}  ·  기록 ${records.length}건  ·  파이프 카운터로 사진 자동 계수 후 확인`,S.sub)]));
+  r++;
+  const hr=r;rows.push(row(r++,heads.map((h,i)=>cell(hr,i,h,S.head)),22));
+  const first=r;
+  records.forEach((rec,i)=>{const rr=r++;rows.push(row(rr,[cell(rr,0,i+1,S.num),cell(rr,1,fmt(rec.ts),S.txt),cell(rr,2,rec.item||'',S.txt),cell(rr,3,rec.spec||'',S.txt),cell(rr,4,rec.loc||'',S.txt),cell(rr,5,rec.count,S.num),cell(rr,6,(rec.rows||[]).join(' · '),S.txt),cell(rr,7,rec.memo||'',S.txt)]));});
+  const last=r-1;const tr=r++;
+  const sumF=records.length?`<f>SUM(F${first}:F${last})</f>`:'';
+  const totalVal=records.reduce((s,x)=>s+(+x.count||0),0);
+  rows.push(row(tr,[cell(tr,0,'합계',S.totL),cell(tr,1,'',S.totL),cell(tr,2,'',S.totL),cell(tr,3,'',S.totL),cell(tr,4,'',S.totL),
+    `<c r="F${tr}" s="${S.totN}">${sumF}<v>${totalVal}</v></c>`,cell(tr,6,'',S.totL),cell(tr,7,'',S.totL)],22));
+  const widths=[6,17,14,14,16,10,36,24];
+  const sheet1=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane ySplit="${hr}" topLeftCell="A${hr+1}" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+<sheetFormatPr defaultRowHeight="15"/>
+<cols>${widths.map((w,i)=>`<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1"/>`).join('')}</cols>
+<sheetData>${rows.join('')}</sheetData>
+<mergeCells count="3"><mergeCell ref="A1:H1"/><mergeCell ref="A2:H2"/><mergeCell ref="A${tr}:E${tr}"/></mergeCells>
+<pageMargins left="0.4" right="0.4" top="0.5" bottom="0.5" header="0.3" footer="0.3"/>
+<pageSetup paperSize="9" orientation="landscape" fitToHeight="0"/>
+</worksheet>`;
+  // Sheet 2: photos
+  const imgs=records.map((rec,i)=>({rec,i})).filter(o=>o.rec.img);
+  const files=[];
+  let sheet2Rows=[],anchors=[],drawRels=[];let pr=1;
+  sheet2Rows.push(row(pr,[cell(pr,0,'결과 사진',S.title)],26));pr+=2;
+  imgs.forEach((o,k)=>{const rec=o.rec;const rr=pr;
+    sheet2Rows.push(row(rr,[cell(rr,0,`#${o.i+1}  ${[rec.item,rec.spec,rec.loc].filter(Boolean).join(' · ')}  —  ${rec.count}개  (${fmt(rec.ts)})`,S.cap)],20));
+    const W=520,H=Math.round(W*(rec.h||1)/(rec.w||1));
+    anchors.push(`<xdr:oneCellAnchor><xdr:from><xdr:col>0</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${rr}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:ext cx="${W*9525}" cy="${H*9525}"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="${k+2}" name="Picture ${k+1}"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="rId${k+1}"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${W*9525}" cy="${H*9525}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor>`);
+    drawRels.push(`<Relationship Id="rId${k+1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image${k+1}.jpeg"/>`);
+    files.push({name:`xl/media/image${k+1}.jpeg`,data:b64bytes(rec.img)});
+    pr=rr+1+Math.ceil(H/20)+2;});
+  const hasImg=imgs.length>0;
+  const sheet2=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheetViews><sheetView workbookViewId="0" showGridLines="0"/></sheetViews><sheetFormatPr defaultRowHeight="15"/><cols><col min="1" max="1" width="12" customWidth="1"/></cols>
+<sheetData>${sheet2Rows.join('')}</sheetData>
+<pageMargins left="0.4" right="0.4" top="0.5" bottom="0.5" header="0.3" footer="0.3"/>${hasImg?'<drawing r:id="rId1"/>':''}
+</worksheet>`;
+  const drawing=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${anchors.join('')}</xdr:wsDr>`;
+  const ct=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="jpeg" ContentType="image/jpeg"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+<Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+${hasImg?'<Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>':''}
+<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>`;
+  const now=new Date().toISOString().replace(/\.\d+Z$/,'Z');
+  const core=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${esc(title)}</dc:title><dc:creator>파이프 카운터</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created></cp:coreProperties>`;
+  const rels=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>`;
+  const wb=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets><sheet name="실사기록" sheetId="1" r:id="rId1"/><sheet name="결과사진" sheetId="2" r:id="rId2"/></sheets><definedNames><definedName name="_xlnm.Print_Titles" localSheetId="0">'실사기록'!$${hr}:$${hr}</definedName></definedNames><calcPr calcId="191029" fullCalcOnLoad="1"/></workbook>`;
+  const wbRels=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`;
+  const out=[{name:'[Content_Types].xml',data:enc.encode(ct)},{name:'_rels/.rels',data:enc.encode(rels)},{name:'docProps/core.xml',data:enc.encode(core)},
+    {name:'xl/workbook.xml',data:enc.encode(wb)},{name:'xl/_rels/workbook.xml.rels',data:enc.encode(wbRels)},{name:'xl/styles.xml',data:enc.encode(styles)},
+    {name:'xl/worksheets/sheet1.xml',data:enc.encode(sheet1)},{name:'xl/worksheets/sheet2.xml',data:enc.encode(sheet2)}];
+  if(hasImg){out.push({name:'xl/worksheets/_rels/sheet2.xml.rels',data:enc.encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>`)},
+    {name:'xl/drawings/drawing1.xml',data:enc.encode(drawing)},{name:'xl/drawings/_rels/drawing1.xml.rels',data:enc.encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${drawRels.join('')}</Relationships>`)},...files);}
+  return zip(out);
+}
+return {build};
+})();
+
 </script>
 <script>
 (function(){
@@ -318,6 +478,7 @@ function render(){
   $('total').textContent=list.length;
   $('rowsTxt').innerHTML=list.length?(`<b>${rows.length}줄</b> · 위에서부터 ${rows.map(r=>r.items.length).join(' · ')}`+(region?'<br>▭ 지정한 영역 안만 세는 중':'')):'인식된 파이프가 없어요. 설정을 조정하거나 ➕추가로 직접 찍어 주세요.';
   $('saveBtn').disabled=!list.length;$('clearRegion').disabled=!region;$('undo').disabled=!undoStack.length;
+  $('addRec').disabled=!list.length;$('addRec').textContent=list.length?`➕ 현재 결과(${list.length}개)를 기록에 추가`:'➕ 현재 결과를 기록에 추가';
 }
 
 function pushUndo(){undoStack.push({circles:circles.map(c=>({...c})),region:region&&{...region}});if(undoStack.length>50)undoStack.shift();}
@@ -376,6 +537,62 @@ $('saveBtn').onclick=async()=>{
   toast('아래 이미지를 길게 눌러 저장하세요');
   $('saveImgBox').scrollIntoView({behavior:'smooth'});
 };
+// ---- 실사 기록 + 엑셀 ----
+const RKEY='pipeCounter.records.v1',FKEY='pipeCounter.fields.v1';
+let records=[];
+try{records=JSON.parse(localStorage.getItem(RKEY)||'[]')||[];}catch(e){records=[];}
+try{const f=JSON.parse(localStorage.getItem(FKEY)||'{}');['fItem','fSpec','fLoc'].forEach(k=>{if(f[k])$(k).value=f[k];});}catch(e){}
+function saveRecords(){
+  try{localStorage.setItem(RKEY,JSON.stringify(records));return true;}
+  catch(e){ // storage full: drop photos of oldest records first
+    for(const r of records){if(r.img){r.img=null;try{localStorage.setItem(RKEY,JSON.stringify(records));toast('저장 공간이 부족해 오래된 기록의 사진을 뺐어요');return true;}catch(e2){}}}
+    toast('기록을 저장하지 못했어요');return false;}
+}
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function fmtT(ts){const d=new Date(ts),p=n=>String(n).padStart(2,'0');return `${p(d.getMonth()+1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;}
+function renderRecords(){
+  const L=$('recList');
+  L.innerHTML=records.map((r,i)=>`<div class="rec">${r.img?`<img src="${r.img}" alt="">`:''}<div class="info"><b>#${i+1} ${esc([r.item,r.spec].filter(Boolean).join(' ')||'품목 미입력')}</b><div class="s">${esc([r.loc,r.memo].filter(Boolean).join(' · '))}${r.loc||r.memo?' · ':''}${fmtT(r.ts)}</div></div><span class="cnt">${r.count.toLocaleString()}개</span><button class="del" data-i="${i}">삭제</button></div>`).join('');
+  const tot=records.reduce((s,r)=>s+r.count,0);
+  $('recTotal').style.display=records.length?'flex':'none';
+  $('recTotalTxt').textContent=`합계 ${records.length}건`;$('recTotalN').textContent=tot.toLocaleString()+'개';
+  $('xlsxBtn').disabled=!records.length;$('clearRec').disabled=!records.length;
+  $('shareBtn').disabled=!records.length||!canShareFiles();
+}
+function canShareFiles(){try{return !!(navigator.canShare&&navigator.canShare({files:[new File(['x'],'t.xlsx',{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})]}));}catch(e){return false;}}
+$('addRec').onclick=()=>{
+  if(!img)return;const list=active();if(!list.length)return;
+  const rows=groupRows(list).map(r=>r.items.length);
+  const oc=document.createElement('canvas');const s=Math.min(1000/W,1000/H,Math.max(img.naturalWidth/W,1));draw(oc,s,{});
+  const rec={id:Date.now(),ts:Date.now(),item:$('fItem').value.trim(),spec:$('fSpec').value.trim(),loc:$('fLoc').value.trim(),memo:$('fMemo').value.trim(),
+    count:list.length,rows,img:oc.toDataURL('image/jpeg',0.8),w:oc.width,h:oc.height};
+  records.push(rec);
+  if(saveRecords()){toast(`#${records.length} 기록 추가 (${rec.count}개)`);}
+  try{localStorage.setItem(FKEY,JSON.stringify({fItem:rec.item,fSpec:rec.spec,fLoc:rec.loc}));}catch(e){}
+  $('fMemo').value='';renderRecords();
+};
+$('recList').addEventListener('click',e=>{const b=e.target.closest('.del');if(!b)return;
+  if(!b.classList.contains('arm')){b.classList.add('arm');b.textContent='한 번 더';setTimeout(()=>{b.classList.remove('arm');b.textContent='삭제';},2500);return;}
+  records.splice(+b.dataset.i,1);saveRecords();renderRecords();toast('기록을 삭제했어요');});
+let clearArm=false;
+$('clearRec').onclick=()=>{if(!clearArm){clearArm=true;$('clearRec').textContent='⚠️ 한 번 더 누르면 모든 기록이 지워져요';setTimeout(()=>{clearArm=false;$('clearRec').textContent='🗑 기록 전체 비우기';},3000);return;}
+  clearArm=false;records=[];saveRecords();renderRecords();$('clearRec').textContent='🗑 기록 전체 비우기';toast('기록을 모두 비웠어요');};
+function xlsxFile(){const d=new Date(),p=n=>String(n).padStart(2,'0');
+  const name=`파이프실사_${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}.xlsx`;
+  const bytes=XLSX_MINI.build(records);
+  return {name,blob:new Blob([bytes],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})};}
+$('xlsxBtn').onclick=async()=>{
+  if(!records.length)return;const {name,blob}=xlsxFile();
+  if(downloads){try{await downloads.save({filename:name,data:blob});toast('엑셀을 저장했어요');return;}catch(err){if(err&&err.code==='declined'){toast('저장을 취소했어요');return;}}}
+  try{const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),30000);
+    toast('엑셀 파일을 내려받았어요 (다운로드 폴더)');}catch(e){toast('이 브라우저에서는 저장이 안 돼요. 📤 공유를 써 보세요');}
+};
+$('shareBtn').onclick=async()=>{
+  if(!records.length)return;const {name,blob}=xlsxFile();
+  const file=new File([blob],name,{type:blob.type});
+  try{await navigator.share({files:[file],title:name});}catch(e){if(e&&e.name!=='AbortError')toast('공유하지 못했어요');}
+};
+renderRecords();
 updSensLabel();
 if('serviceWorker' in navigator&&location.protocol.startsWith('http')){navigator.serviceWorker.register('sw.js').catch(()=>{});}
 })();
