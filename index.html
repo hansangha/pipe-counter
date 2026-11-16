@@ -125,7 +125,7 @@ header .tag{font-size:11px;opacity:.75;margin-left:auto}
   <div class="panel">
     <h3>⚙️ 인식 설정</h3>
     <div class="row"><label>민감도</label><input type="range" id="sens" min="0" max="10" step="1" value="5"><span class="val" id="sensV">보통</span></div>
-    <div class="row"><label>파이프 크기</label><input type="range" id="size" min="5" max="120" step="1" value="24" disabled><span class="val" id="sizeV">자동</span></div>
+    <div class="row"><label>파이프 크기</label><input type="range" id="size" min="5" max="350" step="1" value="24" disabled><span class="val" id="sizeV">자동</span></div>
     <div class="chk">
       <label><input type="checkbox" id="autoSize" checked> 크기 자동</label>
       <label><input type="checkbox" id="showNum" checked> 번호 표시</label>
@@ -187,10 +187,11 @@ function detect(P,r1,r2,thr){const {W,H,ex,ey,edx,edy,n}=P;const A=new Float32Ar
  for(let k=0;k<n;k++){const x=ex[k],y=ey[k],dx=edx[k],dy=edy[k];
   for(let s=-1;s<=1;s+=2)for(let r=r1;r<=r2;r++){const cx=Math.round(x+s*dx*r),cy=Math.round(y+s*dy*r);
    if(cx>=0&&cy>=0&&cx<W&&cy<H)A[cy*W+cx]+=1;}}
- const B=blur(A,W,H,1);
- const rm=(r1+r2)/2;const cand=[];const win=Math.max(2,Math.round(rm*0.5));
- for(let y=1;y<H-1;y++)for(let x=1;x<W-1;x++){const v=B[y*W+x];if(v<rm*0.25)continue;
-  let ok=true;for(let yy=y-1;yy<=y+1&&ok;yy++)for(let xx=x-1;xx<=x+1;xx++)if(B[yy*W+xx]>v){ok=false;break;}
+ const rm=(r1+r2)/2;
+ // big pipes: votes spread wider, so widen the accumulator blur (small pipes unchanged)
+ const bk=rm<70?1:Math.round(rm*0.035);const B=blur(A,W,H,bk);const nf=(2*bk+1)*(2*bk+1)/9;const cand=[];const win=Math.max(2,Math.round(rm*0.5));
+ for(let y=1;y<H-1;y++)for(let x=1;x<W-1;x++){const bv=B[y*W+x],v=bv*nf;if(v<rm*0.25)continue;
+  let ok=true;for(let yy=y-1;yy<=y+1&&ok;yy++)for(let xx=x-1;xx<=x+1;xx++)if(B[yy*W+xx]>bv){ok=false;break;}
   if(ok)cand.push([x,y,v]);}
  cand.sort((a,b)=>b[2]-a[2]);
  const out=[];const md=rm*1.45,md2=md*md;
@@ -202,6 +203,8 @@ function detect(P,r1,r2,thr){const {W,H,ex,ey,edx,edy,n}=P;const A=new Float32Ar
   if(bad)continue;const c={x,y,r:rm,score:sc};out.push(c);const key=gy0*gw+gx0;if(!grid.has(key))grid.set(key,[]);grid.get(key).push(c);}
  // refine radius per circle using edge distance histogram
  refineRadii(P,out,r1,r2);
+ // big pipes (wrapped/large dia.): drop weak circles far below the strong ones (wrap folds, background)
+ if(rm>=70&&out.length>2){const ss=out.map(o=>o.score).sort((a,b)=>b-a);const ref=ss[Math.floor((ss.length-1)/4)];return out.filter(o=>o.score>=ref*0.4);}
  return out;}
 function refineRadii(P,circ,r1,r2){const {ex,ey,edx,edy,n}=P;const lo=Math.floor(r1*0.8),hi=Math.ceil(r2*1.2);
  const cs=hi+1,gw=Math.ceil(P.W/cs)+1,grid=new Map();
@@ -213,11 +216,11 @@ function refineRadii(P,circ,r1,r2){const {ex,ey,edx,edy,n}=P;const lo=Math.floor
  for(const c of circ){let best=0,br=c.r;for(let r=lo;r<=hi;r++){const v=(c.h[r-1]||0)+c.h[r]+(c.h[r+1]||0);if(v>best){best=v;br=r;}}c.r=br;delete c.h;}}
 // automatic: try radius bands, pick the most consistent one
 function autoDetect(P,thr){const m=Math.min(P.W,P.H);let best=null;
- const bands=[];for(let r=Math.max(5,m*0.008);r<m*0.12;r*=1.3)bands.push([Math.round(r),Math.round(r*1.35)]);
+ const bands=[];for(let r=Math.max(5,m*0.008);r<m*0.38;r*=1.3)bands.push([Math.round(r),Math.round(r*1.35)]);
  for(const [r1,r2] of bands){const c=detect(P,r1,r2,thr);if(c.length<3)continue;
   const rs=c.map(o=>o.r).sort((a,b)=>a-b);const med=rs[rs.length>>1];
   const inBand=c.filter(o=>o.r>=r1*0.95&&o.r<=r2*1.05&&Math.abs(o.r-med)<med*0.15);
-  const quality=inBand.reduce((s,o)=>s+o.score,0)*Math.sqrt(med); // favour larger consistent circles
+  const quality=inBand.reduce((s,o)=>s+Math.max(0,o.score-1),0)*Math.sqrt(med); // favour larger consistent circles; score<=1 is mostly noise
   if(!best||quality>best.q)best={q:quality,band:[r1,r2],circles:c,med};}
  return best;}
 
